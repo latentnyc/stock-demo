@@ -58,10 +58,7 @@ export const PortfolioProvider = ({ children }) => {
         const noCacheParam = options.forceRefresh ? '&noCache=true' : '';
 
         try {
-            // Check Database for API Key presence via a test call or just assume it works.
-            // If it fails with "NO_API_KEY", we need to handle it.
-
-            // 1. Quote
+            // 1. Fetch Quote FIRST for immediate UI feedback (Price/Change)
             const quoteRes = await fetchWithThrottle(`/proxy/quote?symbol=${ticker}${noCacheParam}`);
             if (!quoteRes.ok) {
                 const errData = await quoteRes.json().catch(() => ({}));
@@ -77,52 +74,78 @@ export const PortfolioProvider = ({ children }) => {
                 throw new Error('Invalid Ticker or No Data');
             }
 
-            // 2. Profile
-            const profileRes = await fetchWithThrottle(`/proxy/stock/profile2?symbol=${ticker}${noCacheParam}`);
-            const profile = profileRes.ok ? await profileRes.json() : {};
+            // INITIAL UPDATE: Price and Change only
+            setStockData(prev => ({
+                ...prev,
+                [ticker]: {
+                    ...prev[ticker],
+                    ticker: ticker.toUpperCase(),
+                    price: quote.c,
+                    change: quote.d,
+                    changePercent: quote.dp,
+                    high: quote.h,
+                    low: quote.l,
+                    fetchedAt: new Date().toLocaleTimeString(),
+                    status: 'loading_details' // Indicate we are still fetching details
+                }
+            }));
 
-            // 3. News
-            const toDate = new Date().toISOString().split('T')[0];
-            const fromDate = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0];
-            const newsRes = await fetchWithThrottle(`/proxy/company-news?symbol=${ticker}&from=${fromDate}&to=${toDate}${noCacheParam}`);
-            const news = newsRes.ok ? await newsRes.json() : [];
 
-            // 4. Candles
-            const candleFrom = Math.floor((Date.now() - 30 * 86400000) / 1000);
-            const candleTo = Math.floor(Date.now() / 1000);
-            const candleRes = await fetchWithThrottle(`/proxy/stock/candle?symbol=${ticker}&resolution=D&from=${candleFrom}&to=${candleTo}${noCacheParam}`);
-            const candleData = candleRes.ok ? await candleRes.json() : {};
+            // 2. Fetch the rest in parallel
+            // We don't await this block to block the UI, but we await it to return the full object if needed by caller (addStock)
+            // Actually, for addStock we might want the full object.
 
-            // 5. Dividends
-            const dividendRes = await fetchWithThrottle(`/proxy/dividends?symbol=${ticker}${noCacheParam}`);
-            const dividendData = dividendRes.ok ? await dividendRes.json() : {};
+            const fetchDetails = async () => {
+                // 2. Profile
+                const profileRes = await fetchWithThrottle(`/proxy/stock/profile2?symbol=${ticker}${noCacheParam}`);
+                const profile = profileRes.ok ? await profileRes.json() : {};
 
-            let history = [];
-            if (candleData && candleData.s === 'ok') {
-                history = candleData.t.map((timestamp, index) => ({
-                    date: new Date(timestamp * 1000).toISOString().split('T')[0],
-                    price: parseFloat(candleData.c[index].toFixed(2))
-                }));
-            }
+                // 3. News
+                const toDate = new Date().toISOString().split('T')[0];
+                const fromDate = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0];
+                const newsRes = await fetchWithThrottle(`/proxy/company-news?symbol=${ticker}&from=${fromDate}&to=${toDate}${noCacheParam}`);
+                const news = newsRes.ok ? await newsRes.json() : [];
 
-            const data = {
-                ticker: ticker.toUpperCase(),
-                name: profile.name || ticker,
-                price: quote.c,
-                change: quote.d,
-                changePercent: quote.dp,
-                high: quote.h,
-                low: quote.l,
-                logo: profile.logo,
-                history,
-                status: 'ok',
-                news: Array.isArray(news) ? news.slice(0, 5) : [],
-                dividends: dividendData,
-                fetchedAt: new Date().toLocaleTimeString()
+                // 4. Candles
+                const candleFrom = Math.floor((Date.now() - 30 * 86400000) / 1000);
+                const candleTo = Math.floor(Date.now() / 1000);
+                const candleRes = await fetchWithThrottle(`/proxy/stock/candle?symbol=${ticker}&resolution=D&from=${candleFrom}&to=${candleTo}${noCacheParam}`);
+                const candleData = candleRes.ok ? await candleRes.json() : {};
+
+                // 5. Dividends
+                const dividendRes = await fetchWithThrottle(`/proxy/dividends?symbol=${ticker}${noCacheParam}`);
+                const dividendData = dividendRes.ok ? await dividendRes.json() : {};
+
+                let history = [];
+                if (candleData && candleData.s === 'ok') {
+                    history = candleData.t.map((timestamp, index) => ({
+                        date: new Date(timestamp * 1000).toISOString().split('T')[0],
+                        price: parseFloat(candleData.c[index].toFixed(2))
+                    }));
+                }
+
+                const fullData = {
+                    ticker: ticker.toUpperCase(),
+                    name: profile.name || ticker,
+                    price: quote.c,
+                    change: quote.d,
+                    changePercent: quote.dp,
+                    high: quote.h,
+                    low: quote.l,
+                    logo: profile.logo,
+                    history,
+                    status: 'ok',
+                    news: Array.isArray(news) ? news.slice(0, 5) : [],
+                    dividends: dividendData,
+                    fetchedAt: new Date().toLocaleTimeString()
+                };
+
+                // FINAL UPDATE: All data
+                setStockData(prev => ({ ...prev, [ticker]: fullData }));
+                return fullData;
             };
 
-            setStockData(prev => ({ ...prev, [ticker]: data }));
-            return data;
+            return await fetchDetails();
 
         } catch (err) {
             console.error("Error fetching stock data:", err);

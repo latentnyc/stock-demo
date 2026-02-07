@@ -193,12 +193,12 @@ const Portfolio = () => {
                                         <div style={{ textAlign: 'right' }}>
                                             <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Change</div>
                                             <div style={{ color: change >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>
-                                                {change > 0 ? '+' : ''}{change}%
+                                                {change > 0 ? '+' : ''}{change.toFixed(2)}%
                                             </div>
                                         </div>
                                         <div style={{ textAlign: 'right' }}>
                                             <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Value</div>
-                                            <div style={{ fontWeight: 'bold' }}>${value.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                                            <div style={{ fontWeight: 'bold' }}>${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                         </div>
                                         <div style={{ textAlign: 'right', paddingLeft: '16px' }}>
                                             <button
