@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout/Layout';
 import Portfolio from './components/Dashboard/Portfolio';
 import Dashboard from './components/Dashboard/Dashboard';
@@ -75,7 +75,7 @@ function App() {
     <GoogleOAuthProvider clientId={clientId}>
       <AuthProvider>
         <PortfolioProvider>
-          <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }} basename={import.meta.env.BASE_URL}>
+          <Router>
             <AppRoutes />
           </Router>
         </PortfolioProvider>
