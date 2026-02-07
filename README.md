@@ -1,16 +1,101 @@
-# React + Vite
+# 🦆 Vibes Stock Demo
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+> **⚠️ DISCLOSURE: VIBE CODED PRODUCT ⚠️**
+> 
+> This is a **first attempt**. This entire project was built on pure vibes, late-night coding sessions, and a lot of "let's see if this works". 
+> 
+> **Expect:**
+> - Spaghetti code 🍝
+> - "It works on my machine" guarantees
+> - A distinct lack of unit tests (we test in production like real heroes)
+> - Occasional brilliance mixed with "why did I do that?"
+>
+> **Do NOT Expect:**
+> - Enterprise-grade scalability
+> - Rigorous error handling
+> - A refund
 
-Currently, two official plugins are available:
+## What is this?
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+This is a simple stock tracking application. It allows you to:
+- **Track your portfolio**: Add stocks, remove them, and watch your wealth fluctuate.
+- **View Real-time(ish) Data**: We scrape Yahoo Finance using Python because official APIs are expensive.
+- **Read News**: Get the latest market news.
+- **Login with Google**: Because writing your own auth is a nightmare.
+- **View System Logs**: See exactly what's breaking in real-time!
 
-## React Compiler
+## The Tech Stack (The "Vibes")
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+We threw together some cool tech to make this happen:
 
-## Expanding the ESLint configuration
+- **Frontend**: 
+  - [React](https://react.dev/)
+  - [Vite](https://vitejs.dev/) (Fast!)
+  - [TailwindCSS](https://tailwindcss.com/) (CSS for people who hate CSS)
+  - [Recharts](https://recharts.org/) (Charts!)
+  - [Lucide React](https://lucide.dev/) (Icons!)
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- **Backend**:
+  - [Node.js](https://nodejs.org/) & [Express](https://expressjs.com/)
+  - [SQLite](https://www.sqlite.org/index.html) (Simple, local database)
+  - [Python](https://www.python.org/) & [yfinance](https://pypi.org/project/yfinance/) (For fetching stock data)
+
+## Getting Started
+
+If you are brave enough to run this locally:
+
+### 1. Prerequisites
+
+- Node.js (Latest LTS recommended)
+- Python 3.x (with `pip` installed)
+- A Google Cloud Console project (for Auth)
+- A hunger for adventure
+
+### 2. Installation
+
+Clone the repo and install the dependencies.
+
+```bash
+git clone https://github.com/latentnyc/stock-demo.git
+cd stock-demo
+npm install
+```
+
+Install Python dependencies:
+```bash
+cd server
+pip install -r requirements.txt
+cd ..
+```
+
+### 3. Environment Variables
+
+You'll need a `.env` file in the root directory.
+
+```env
+PORT=3002
+# Google OAuth Credentials
+GOOGLE_CLIENT_ID=your_google_client_id
+VITE_GOOGLE_CLIENT_ID=your_google_client_id
+# JWT Secret for session tokens
+JWT_SECRET=super_secret_vibe_key
+```
+
+### 4. Running the App
+
+We use `concurrently` to run both the frontend and backend with one command, because efficiency.
+
+```bash
+npm run start:dev
+```
+
+- **Frontend**: [http://localhost:5173](http://localhost:5173)
+- **Backend**: [http://localhost:3002](http://localhost:3002)
+
+## Contributing
+
+If you want to fix my messy code, feel free to open a PR. Just remember to keep the vibes good.
+
+## License
+
+MIT. Do whatever you want with this.
