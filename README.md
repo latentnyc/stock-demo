@@ -61,9 +61,22 @@ cd stock-demo
 npm install
 ```
 
-Install Python dependencies:
+#### Windows (PowerShell)
+```powershell
+cd server
+python -m venv venv
+.\venv\Scripts\Activate
+pip install -r requirements.txt
+cd ..
+```
+
+#### Mac / Linux
+**Note:** This app uses the command `python` to run scripts. Ensure `python` creates a Python 3 environment or alias it.
+
 ```bash
 cd server
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 cd ..
 ```
