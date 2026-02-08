@@ -19,6 +19,10 @@
 
 This is a simple stock tracking application. It allows you to:
 - **Track your portfolio**: Add stocks, remove them, and watch your wealth fluctuate.
+- **Visuals**: View 30-day performance charts and detailed stock data.
+- **Import Data**: Bulk import your portfolio from CSV or spreadsheet copy/paste.
+- **Market Status**: See if the market is open or closed in real-time.
+- **Data Freshness**: Manual refresh controls and "Last Updated" timestamps.
 - **View Real-time(ish) Data**: We scrape Yahoo Finance using Python because official APIs are expensive.
 - **Read News**: Get the latest market news.
 - **Login with Google**: Because writing your own auth is a nightmare.
