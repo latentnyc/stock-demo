@@ -1,11 +1,14 @@
 {
   "name": "stock-demo",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.1",
+  "description": "A vibe-coded stock tracking application.",
+  "license": "MIT",
+  "author": "Vibes Team",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "start:dev": "concurrently \"vite\" \"node server/index.js\"",
+    "start:dev": "concurrently \"vite\" \"node --watch server/index.js\"",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",

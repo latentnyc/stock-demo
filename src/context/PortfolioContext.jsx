@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { fetchWithThrottle } from '../utils/api';
+import { fetchWithThrottle, fetchInternal } from '../utils/api';
 
 const PortfolioContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const usePortfolio = () => useContext(PortfolioContext);
 
 export const PortfolioProvider = ({ children }) => {
@@ -15,7 +16,7 @@ export const PortfolioProvider = ({ children }) => {
     // Load Portfolio from Backend
     const loadPortfolio = useCallback(async () => {
         try {
-            const res = await fetchWithThrottle('/portfolio');
+            const res = await fetchInternal(`/portfolio?t=${Date.now()}`);
             if (res.ok) {
                 const data = await res.json();
                 setPortfolio(data);
@@ -31,9 +32,8 @@ export const PortfolioProvider = ({ children }) => {
 
     const fetchMarketStatus = useCallback(async () => {
         try {
-            // Finnhub doesn't have a simple generic "is market open" endpoint freely available easily without exchange, 
-            // but we can try /stock/market-status?exchange=US
-            const res = await fetchWithThrottle('/proxy/stock/market-status?exchange=US');
+            // Check /stock/market-status to get the current market state.
+            const res = await fetchWithThrottle('/proxy/stock/market-status');
             if (res.ok) {
                 const data = await res.json();
                 // data = { isOpen: boolean, holiday: string, ... }
@@ -55,10 +55,12 @@ export const PortfolioProvider = ({ children }) => {
         setLoading(true);
         setError(null);
 
-        const noCacheParam = options.forceRefresh ? '&noCache=true' : '';
+        const noCacheParam = options.forceRefresh ? '&forceRefresh=true' : '';
 
         try {
-            // 1. Fetch Quote FIRST for immediate UI feedback (Price/Change)
+            // Strategy: Two-tiered fetching for optimal UX.
+            // 1. Fetch Quote FIRST for immediate UI feedback (Price/Change).
+            // 2. Fetch detailed data (Profile, News, Candles, Dividends) in parallel afterwards.
             const quoteRes = await fetchWithThrottle(`/proxy/quote?symbol=${ticker}${noCacheParam}`);
             if (!quoteRes.ok) {
                 const errData = await quoteRes.json().catch(() => ({}));
@@ -69,6 +71,9 @@ export const PortfolioProvider = ({ children }) => {
                 throw new Error(errData.error || 'Failed to fetch quote');
             }
             const quote = await quoteRes.json();
+            // Get fetchedAt from header
+            const fetchedAtHeader = quoteRes.headers.get('X-Fetched-At');
+            const fetchedAt = fetchedAtHeader ? new Date(fetchedAtHeader).getTime() : Date.now();
 
             if (quote.pc === 0 && quote.d === null) {
                 throw new Error('Invalid Ticker or No Data');
@@ -85,15 +90,15 @@ export const PortfolioProvider = ({ children }) => {
                     changePercent: quote.dp,
                     high: quote.h,
                     low: quote.l,
-                    fetchedAt: new Date().toLocaleTimeString(),
+                    fetchedAt: fetchedAt, // Use server timestamp
                     status: 'loading_details' // Indicate we are still fetching details
                 }
             }));
 
 
             // 2. Fetch the rest in parallel
-            // We don't await this block to block the UI, but we await it to return the full object if needed by caller (addStock)
-            // Actually, for addStock we might want the full object.
+            // We fetch profile, news, candles, and dividends concurrently to minimize total wait time.
+            // This data populates the detailed view and historical charts.
 
             const fetchDetails = async () => {
                 // 2. Profile
@@ -101,14 +106,29 @@ export const PortfolioProvider = ({ children }) => {
                 const profile = profileRes.ok ? await profileRes.json() : {};
 
                 // 3. News
-                const toDate = new Date().toISOString().split('T')[0];
-                const fromDate = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0];
+                // Cache friendlier: update 'to' only once per hour? Or keep it 'today'.
+                // 'fromDate' as 3 days ago is fine, but let's make sure it doesn't shift every millisecond.
+                const now = new Date();
+                const toDate = now.toISOString().split('T')[0]; // YYYY-MM-DD (stable for 24h)
+
+                // For 'from', 3 days ago
+                const threeDaysAgo = new Date(now);
+                threeDaysAgo.setDate(now.getDate() - 3);
+                const fromDate = threeDaysAgo.toISOString().split('T')[0]; // (stable for 24h)
+
                 const newsRes = await fetchWithThrottle(`/proxy/company-news?symbol=${ticker}&from=${fromDate}&to=${toDate}${noCacheParam}`);
                 const news = newsRes.ok ? await newsRes.json() : [];
 
                 // 4. Candles
-                const candleFrom = Math.floor((Date.now() - 30 * 86400000) / 1000);
-                const candleTo = Math.floor(Date.now() / 1000);
+                // Timestamp based: cache miss every second if we use Date.now() / 1000
+                // Normalize 'to' to the current hour or minute to allow caching for at least that duration
+                // Let's normalize to the start of the current 5-minute block
+                const nowSeconds = Math.floor(Date.now() / 1000);
+                const block = 3600; // 1 hour
+                const candleTo = nowSeconds - (nowSeconds % block);
+
+                const candleFrom = candleTo - (30 * 86400000 / 1000); // 30 days ago from the normalized 'to'
+
                 const candleRes = await fetchWithThrottle(`/proxy/stock/candle?symbol=${ticker}&resolution=D&from=${candleFrom}&to=${candleTo}${noCacheParam}`);
                 const candleData = candleRes.ok ? await candleRes.json() : {};
 
@@ -125,7 +145,7 @@ export const PortfolioProvider = ({ children }) => {
                 }
 
                 const fullData = {
-                    ticker: ticker.toUpperCase(),
+                    ticker: (profile.ticker || ticker).toUpperCase(),
                     name: profile.name || ticker,
                     price: quote.c,
                     change: quote.d,
@@ -137,7 +157,7 @@ export const PortfolioProvider = ({ children }) => {
                     status: 'ok',
                     news: Array.isArray(news) ? news.slice(0, 5) : [],
                     dividends: dividendData,
-                    fetchedAt: new Date().toLocaleTimeString()
+                    fetchedAt: fetchedAt // Use the timestamp from the quote response as the primary timestamp
                 };
 
                 // FINAL UPDATE: All data
@@ -157,22 +177,39 @@ export const PortfolioProvider = ({ children }) => {
         }
     }, []);
 
-    const fetchGeneralNews = useCallback(async () => {
+    const fetchGeneralNews = useCallback(async (options = {}) => {
         try {
-            const res = await fetchWithThrottle('/proxy/news?category=general');
+            const noCacheParam = options.forceRefresh ? '&forceRefresh=true' : '';
+            const res = await fetchWithThrottle(`/proxy/news?category=general${noCacheParam}`);
             if (res.ok) {
-                return await res.json();
+                const data = await res.json();
+                const fetchedAtHeader = res.headers.get('X-Fetched-At');
+                const fetchedAt = fetchedAtHeader ? new Date(fetchedAtHeader).getTime() : Date.now();
+                return { articles: data, fetchedAt };
             }
-            return [];
+            return { articles: [], fetchedAt: Date.now() };
         } catch (err) {
             console.error("Error fetching general news:", err);
-            return [];
+            return { articles: [], fetchedAt: Date.now() };
         }
     }, []);
 
-    const fetchMarketIndices = useCallback(async () => {
-        const indices = ['^GSPC', '^DJI', '^IXIC'];
-        await Promise.all(indices.map(ticker => fetchStockData(ticker)));
+    const MARKET_INDICES = [
+        { ticker: '^GSPC', name: 'S&P 500' },
+        { ticker: '^DJI', name: 'Dow Jones' },
+        { ticker: '^IXIC', name: 'NASDAQ' },
+        { ticker: '^FTSE', name: 'FTSE 100' },
+        { ticker: '^GDAXI', name: 'DAX' },
+        { ticker: '^FCHI', name: 'CAC 40' },
+        { ticker: '^N225', name: 'Nikkei 225' },
+        { ticker: '000001.SS', name: 'Shanghai Composite' },
+        { ticker: '^HSI', name: 'Hang Seng Index' },
+        { ticker: '^NSEI', name: 'Nifty 50' }
+    ];
+
+    const fetchMarketIndices = useCallback(async (options = {}) => {
+        await Promise.all(MARKET_INDICES.map(index => fetchStockData(index.ticker, options)));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [fetchStockData]);
 
     // Fetch data for all portfolio items
@@ -186,15 +223,15 @@ export const PortfolioProvider = ({ children }) => {
         }
     }, [portfolio, fetchStockData]);
 
-    const addStock = async (ticker, quantity) => {
+    const addStock = async (ticker, quantity, costBasis = 0) => {
         const data = await fetchStockData(ticker);
         if (!data || data.error) return false;
 
         try {
-            const res = await fetchWithThrottle('/portfolio', {
+            const res = await fetchInternal('/portfolio', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ticker, quantity })
+                body: JSON.stringify({ ticker, quantity, costBasis })
             });
             if (res.ok) {
                 await loadPortfolio(); // Refresh
@@ -206,18 +243,98 @@ export const PortfolioProvider = ({ children }) => {
         return false;
     };
 
+    const importPortfolio = async (data) => {
+        try {
+            const res = await fetchInternal('/portfolio/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (res.ok) {
+                await loadPortfolio();
+                return true;
+            }
+        } catch (err) {
+            console.error('Failed to import portfolio:', err);
+        }
+        return false;
+    };
+
     const removeStock = async (ticker) => {
         try {
-            const res = await fetchWithThrottle(`/portfolio/${ticker}`, {
+            const res = await fetchInternal(`/portfolio/${ticker}`, {
                 method: 'DELETE'
             });
             if (res.ok) {
                 await loadPortfolio();
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || `Failed to delete: ${res.status}`);
             }
         } catch (err) {
             console.error('Failed to remove stock:', err);
+            throw err; // Re-throw so UI can handle it
         }
     };
+
+    // Alert System Logic
+    const [alerts, setAlerts] = useState(() => {
+        try {
+            const saved = localStorage.getItem('stockAlerts');
+            return saved ? JSON.parse(saved) : [];
+        } catch (e) {
+            console.error("Error parsing alerts from localStorage:", e);
+            return [];
+        }
+    });
+
+    useEffect(() => {
+        localStorage.setItem('stockAlerts', JSON.stringify(alerts));
+    }, [alerts]);
+
+    const checkAlerts = useCallback(() => {
+        const today = new Date().toISOString().split('T')[0];
+
+        Object.values(stockData).forEach(stock => {
+            if (!stock || typeof stock.changePercent !== 'number') return;
+
+            const isSignificantMove = Math.abs(stock.changePercent) > 3;
+            if (isSignificantMove) {
+                // Check if we already alerted for this stock today
+                const alreadyAlerted = alerts.some(alert =>
+                    alert.ticker === stock.ticker &&
+                    alert.date === today &&
+                    alert.type === (stock.changePercent > 0 ? 'up' : 'down')
+                );
+
+                if (!alreadyAlerted) {
+                    const newAlert = {
+                        id: Date.now() + Math.random().toString(36).substr(2, 9),
+                        ticker: stock.ticker,
+                        changePercent: stock.changePercent,
+                        price: stock.price,
+                        date: today,
+                        timestamp: Date.now(),
+                        read: false,
+                        type: stock.changePercent > 0 ? 'up' : 'down'
+                    };
+                    setAlerts(prev => [newAlert, ...prev]);
+                }
+            }
+        });
+    }, [stockData, alerts]);
+
+    useEffect(() => {
+        checkAlerts();
+    }, [checkAlerts]);
+
+    const markAlertsAsRead = useCallback(() => {
+        setAlerts(prev => prev.map(alert => ({ ...alert, read: true })));
+    }, []);
+
+    const clearAlerts = useCallback(() => {
+        setAlerts([]);
+    }, []);
 
     const value = {
         portfolio,
@@ -226,10 +343,16 @@ export const PortfolioProvider = ({ children }) => {
         error,
         addStock,
         removeStock,
+        importPortfolio,
         fetchStockData,
         fetchGeneralNews,
         fetchMarketIndices,
-        marketStatus
+        fetchMarketStatus,
+        marketStatus,
+        MARKET_INDICES,
+        alerts,
+        markAlertsAsRead,
+        clearAlerts
     };
 
     return (

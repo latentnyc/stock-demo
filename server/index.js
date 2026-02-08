@@ -1,3 +1,4 @@
+
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -21,15 +22,22 @@ app.use(express.json());
 
 // Logging Middleware
 app.use((req, res, next) => {
+    fs.appendFileSync('server/debug_output.txt', `[START] ${new Date().toISOString()} ${req.method} ${req.url}\n`);
+    console.log(`Incoming Request: ${req.method} ${req.url}`);
     const start = Date.now();
     const { method, url } = req;
 
     // Hook into response finish to log status and duration
     res.on('finish', () => {
+        // Exclude logging for the logs endpoint itself to reduce noise
+        if (url.startsWith('/api/logs')) return;
+
         const duration = Date.now() - start;
         const status = res.statusCode;
         const timestamp = new Date().toISOString();
-        const logEntry = `${timestamp} - ${method} ${url} ${status} ${duration}ms\n`;
+        const cacheHitHeader = res.getHeader('X-Cache-Hit');
+        const cacheHit = cacheHitHeader === 'true' ? 1 : 0;
+        const logEntry = `${timestamp} - ${method} ${url} ${status} ${duration}ms CacheHit:${cacheHit}\n`;
 
         // 1. Log to File
         fs.appendFile(LOG_FILE, logEntry, (err) => {
@@ -37,8 +45,8 @@ app.use((req, res, next) => {
         });
 
         // 2. Log to Database
-        db.run(`INSERT INTO logs (timestamp, method, url, status, duration) VALUES (?, ?, ?, ?, ?)`,
-            [timestamp, method, url, status, duration],
+        db.run(`INSERT INTO logs (timestamp, method, url, status, duration, cache_hit) VALUES (?, ?, ?, ?, ?, ?)`,
+            [timestamp, method, url, status, duration, cacheHit],
             (err) => {
                 if (err) console.error('Error writing to log db:', err);
             }
@@ -57,46 +65,121 @@ app.get('/', (req, res) => {
 
 // Portfolio Routes
 app.get('/api/portfolio', (req, res) => {
-    db.all('SELECT * FROM portfolio', [], (err, rows) => {
+    db.all('SELECT * FROM portfolio ORDER BY ticker ASC', [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
 });
 
 app.post('/api/portfolio', (req, res) => {
-    const { ticker, quantity } = req.body;
-    // Check if exists
-    db.get('SELECT id, quantity FROM portfolio WHERE ticker = ?', [ticker], (err, row) => {
+    const { ticker, quantity, costBasis } = req.body;
+    const price = parseFloat(costBasis) || 0;
+    const qty = parseFloat(quantity);
+    const upperTicker = ticker.toUpperCase();
+
+    // Check if exists using case-insensitive check
+    db.get('SELECT id, quantity, average_price, ticker FROM portfolio WHERE UPPER(ticker) = ?', [upperTicker], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
 
         if (row) {
-            // Update
-            const newQuantity = parseFloat(row.quantity) + parseFloat(quantity);
-            db.run('UPDATE portfolio SET quantity = ? WHERE id = ?', [newQuantity, row.id], (err) => {
-                if (err) return res.status(500).json({ error: err.message });
-                res.json({ success: true, action: 'updated', quantity: newQuantity });
-            });
+            // Update with weighted average
+            const currentQty = parseFloat(row.quantity);
+            const currentAvg = parseFloat(row.average_price) || 0;
+
+            const newQuantity = currentQty + qty;
+            let newAveragePrice = currentAvg;
+
+            if (newQuantity > 0) {
+                newAveragePrice = ((currentQty * currentAvg) + (qty * price)) / newQuantity;
+            }
+
+            db.run('UPDATE portfolio SET quantity = ?, average_price = ? WHERE id = ?',
+                [newQuantity, newAveragePrice, row.id],
+                (err) => {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.json({ success: true, action: 'updated', quantity: newQuantity, average_price: newAveragePrice });
+                });
         } else {
-            // Insert
-            db.run('INSERT INTO portfolio (ticker, quantity) VALUES (?, ?)', [ticker, quantity], (err) => {
-                if (err) return res.status(500).json({ error: err.message });
-                res.json({ success: true, action: 'inserted' });
-            });
+            // Insert - Always use uppercased ticker for new entries to maintain cleanliness
+            db.run('INSERT INTO portfolio (ticker, quantity, average_price) VALUES (?, ?, ?)',
+                [upperTicker, qty, price],
+                (err) => {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.json({ success: true, action: 'inserted' });
+                });
         }
+    });
+});
+
+app.post('/api/portfolio/import', (req, res) => {
+    const items = req.body; // Expecting array of { ticker, quantity, average_price }
+    if (!Array.isArray(items)) {
+        return res.status(400).json({ error: "Input must be an array" });
+    }
+
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+
+        db.run("DELETE FROM portfolio", (err) => {
+            if (err) {
+                console.error("Error clearing portfolio:", err);
+                db.run("ROLLBACK");
+                return res.status(500).json({ error: err.message });
+            }
+
+            if (items.length === 0) {
+                db.run("COMMIT");
+                return res.json({ success: true, count: 0 });
+            }
+
+            const stmt = db.prepare("INSERT INTO portfolio (ticker, quantity, average_price) VALUES (?, ?, ?)");
+
+            items.forEach(item => {
+                stmt.run(item.ticker.toUpperCase(), item.quantity, item.average_price || 0);
+            });
+
+            stmt.finalize((err) => {
+                if (err) {
+                    console.error("Error finalizing statement:", err);
+                    db.run("ROLLBACK");
+                    return res.status(500).json({ error: err.message });
+                }
+
+                db.run("COMMIT", (err) => {
+                    if (err) {
+                        console.error("Error committing:", err);
+                        return res.status(500).json({ error: err.message });
+                    }
+                    res.json({ success: true, count: items.length });
+                });
+            });
+        });
     });
 });
 
 app.delete('/api/portfolio/:ticker', (req, res) => {
     const { ticker } = req.params;
-    db.run('DELETE FROM portfolio WHERE ticker = ?', [ticker], (err) => {
+    // Case-insensitive delete to catch 'Apple', 'APPLE', 'aapl'
+    db.run('DELETE FROM portfolio WHERE UPPER(ticker) = ?', [ticker.toUpperCase()], function (err) {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ success: true });
+        res.json({ success: true, changes: this.changes });
     });
 });
 
 // Logs Route
 app.get('/api/logs', (req, res) => {
-    db.all('SELECT * FROM logs ORDER BY id DESC LIMIT 100', [], (err, rows) => {
+    const includeCacheHits = req.query.include_cache_hits === 'true';
+
+    let query = 'SELECT * FROM logs';
+    const params = [];
+
+    if (!includeCacheHits) {
+        query += ' WHERE cache_hit = 0';
+    }
+
+    query += ' ORDER BY id DESC LIMIT 100';
+
+    db.all(query, params, (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
@@ -133,10 +216,16 @@ app.post('/api/auth/google', async (req, res) => {
     }
 });
 
+// Queue Status Route
+import limiter from './rateLimiter.js';
+app.get('/api/queue-status', (req, res) => {
+    res.json({ depth: limiter.getQueueLength() });
+});
+
 // Proxy Route
 import { fetchStockData } from './proxy.js';
 app.use('/api/proxy', fetchStockData);
 
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
-});
+}); // Restart triggered

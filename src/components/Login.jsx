@@ -15,7 +15,7 @@ const Login = () => {
     };
 
     const handleError = () => {
-        console.log('Login Failed');
+
     };
 
     return (

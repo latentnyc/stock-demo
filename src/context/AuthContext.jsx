@@ -5,6 +5,7 @@ import { jwtDecode } from 'jwt-decode';
 
 const AuthContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
@@ -14,20 +15,32 @@ export const AuthProvider = ({ children }) => {
 
     useEffect(() => {
         if (token) {
-            console.log('AuthContext: Token changed, validating...');
+
             // Validate token or just decode if we trust it for UI updates
             // For now, we'll decode and set user. In a real app, verify with backend.
             try {
                 const decoded = jwtDecode(token);
-                console.log('AuthContext: Token decoded successfully', decoded);
+
                 // The token payload matches what we set in backend: { id, email, name, picture }
-                setUser(decoded);
+                // Avoid setting user if it's already set to the same value to prevent loops, 
+                // though object comparison is tricky. 
+                // Using JSON.stringify for a quick check or just checking if user is null.
+                if (!user) {
+                    setUser(decoded);
+                }
             } catch (error) {
                 console.error('Invalid token during decode', error);
-                logout();
+                // logout is defined below, but we need it here. 
+                // To fix "used before declaration", we should define it before useEffect or use a function declaration.
+                // However, since we are moving it, we can just call it.
+                googleLogout();
+                localStorage.removeItem('token');
+                setToken(null);
+                setUser(null);
             }
         }
         setLoading(false);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token]);
 
     const login = async (googleToken) => {
@@ -44,6 +57,8 @@ export const AuthProvider = ({ children }) => {
             return false;
         }
     };
+
+
 
     const logout = () => {
         googleLogout();

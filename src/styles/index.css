@@ -93,3 +93,10 @@ a {
 ::-webkit-scrollbar-thumb:hover {
   background: #2a2b4e;
 }
+
+/* Responsive Utilities */
+@media (max-width: 768px) {
+  .hide-on-mobile {
+    display: none !important;
+  }
+}@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .spin { animation: spin 1s linear infinite; }

@@ -1,6 +1,6 @@
+
+
 import puppeteer from 'puppeteer';
-import { fileURLToPath } from 'url';
-import path from 'path';
 
 // Helper to wait
 const delay = (time) => new Promise(resolve => setTimeout(resolve, time));

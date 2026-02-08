@@ -1,13 +1,16 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout/Layout';
+import ScrollToTop from './components/Layout/ScrollToTop';
 import Portfolio from './components/Dashboard/Portfolio';
 import Dashboard from './components/Dashboard/Dashboard';
+import Market from './components/Dashboard/Market';
 import StockDetail from './components/Dashboard/StockDetail';
+import ImportPage from './components/Dashboard/ImportPage';
 
 import News from './components/Dashboard/News';
 import { PortfolioProvider } from './context/PortfolioContext';
-import './styles/index.css';
+
 
 import LogsViewer from './components/LogsViewer';
 import { GoogleOAuthProvider } from '@react-oauth/google';
@@ -18,18 +21,26 @@ import { Navigate } from 'react-router-dom';
 
 const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
+// Protected Route Wrapper
+// Redirects unauthenticated users to the landing page.
+const ProtectedRoute = ({ children }) => {
+  const { isAuthenticated } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/" replace />;
+  return children;
+};
+
+// Main Routing Component
+// Handles conditionally rendering public vs protected routes based on auth state.
 function AppRoutes() {
   const { isAuthenticated, loading } = useAuth();
+
+
 
   if (loading) {
     return <div className="flex items-center justify-center h-screen bg-[var(--bg-primary)] text-[var(--accent-green)]">Loading...</div>;
   }
 
-  // Protected Route Wrapper
-  const ProtectedRoute = ({ children }) => {
-    if (!isAuthenticated) return <Navigate to="/" replace />;
-    return children;
-  };
+
 
   return (
     <Routes>
@@ -57,6 +68,16 @@ function AppRoutes() {
           <Layout><StockDetail /></Layout>
         </ProtectedRoute>
       } />
+      <Route path="/market" element={
+        <ProtectedRoute>
+          <Layout><Market /></Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/import" element={
+        <ProtectedRoute>
+          <Layout><ImportPage /></Layout>
+        </ProtectedRoute>
+      } />
 
       <Route path="/logs" element={
         <ProtectedRoute>
@@ -76,6 +97,7 @@ function App() {
       <AuthProvider>
         <PortfolioProvider>
           <Router>
+            <ScrollToTop />
             <AppRoutes />
           </Router>
         </PortfolioProvider>

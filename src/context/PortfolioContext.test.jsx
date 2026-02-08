@@ -1,6 +1,6 @@
+
 import { render, screen, act, waitFor } from '@testing-library/react';
 import { PortfolioProvider, usePortfolio } from './PortfolioContext';
-import { useEffect } from 'react';
 import { vi, describe, it, expect } from 'vitest';
 
 // Mock the api utils to avoid real network calls
@@ -8,18 +8,17 @@ vi.mock('../utils/api', () => ({
     fetchWithThrottle: vi.fn(() => Promise.resolve({
         ok: true,
         json: () => Promise.resolve({
-            c: 150.00,
+            c_close: 200, v: 1000,
             d: 2.5,
             dp: 1.5,
             h: 155,
             l: 145,
             t: [], // history timestamps
-            c: []  // history closes
         })
     }))
 }));
 
-const TestComponent = ({ onStep }) => {
+const TestComponent = () => {
     const { apiKey, setApiKey, stockData, fetchStockData } = usePortfolio();
 
     return (

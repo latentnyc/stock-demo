@@ -3,12 +3,32 @@ import json
 import yfinance as yf
 from datetime import datetime
 import time
+import requests # Import at top
+
+# Common mappings for better UX - Global Scope
+TICKER_MAP = {
+    'APPLE': 'AAPL',
+    'MICROSOFT': 'MSFT',
+    'GOOGLE': 'GOOGL',
+    'AMAZON': 'AMZN',
+    'TESLA': 'TSLA',
+    'META': 'META',
+    'FACEBOOK': 'META',
+    'NVIDIA': 'NVDA',
+    'NETFLIX': 'NFLX',
+    'AMD': 'AMD',
+    'INTEL': 'INTC'
+}
 
 def fetch_data(endpoint, ticker, **kwargs):
     try:
         if not ticker:
              return {"error": "Ticker is required"}
         
+        # Apply mapping globally
+        if ticker.upper() in TICKER_MAP:
+            ticker = TICKER_MAP[ticker.upper()]
+
         stock = yf.Ticker(ticker)
         
         # Debug: print news to stderr
@@ -231,6 +251,182 @@ def fetch_data(endpoint, ticker, **kwargs):
                 }
             except Exception as e:
                 return {"error": f"Failed to fetch dividends: {str(e)}"}
+
+        elif endpoint == 'market-status':
+            from datetime import timezone, timedelta
+            import datetime as dt
+
+            # Default to closed
+            is_open = False
+            exchange = "US"
+            tz = "ET"
+            market_state = "CLOSED"
+
+            # Try to fetch from Yahoo Finance using a major index
+            # ^IXIC (Nasdaq Composite) is a good proxy for overall US market status
+            try:
+                market_ticker = yf.Ticker("^IXIC")
+                info = market_ticker.info
+                market_state = info.get('marketState', 'CLOSED').upper()
+                
+                if market_state == 'REGULAR':
+                    is_open = True
+                
+                exchange = info.get('exchange', 'US')
+                tz = info.get('timeZoneShortName', 'ET')
+            except Exception as e:
+                print(f"Market status fetch failed: {e}", file=sys.stderr)
+
+            # Calculate next open/close
+            # Use UTC and offset for simplicity if pytz is missing
+            # Using standard datetime.timezone if available
+            now_utc = datetime.now(timezone.utc)
+            
+            # Simple ET approximation (UTC-5 standard, UTC-4 DST)
+            # Currently February -> Standard Time (UTC-5)
+            # Ideally we use pytz
+            try:
+                import pytz
+                et_tz = pytz.timezone('US/Eastern')
+                now_et = now_utc.astimezone(et_tz)
+            except ImportError:
+                # Fallback to fixed offset. Feb is Winter -> UTC-5
+                offset = timedelta(hours=-5)
+                now_et = now_utc + offset
+
+            # Market Hours: 9:30 - 16:00 ET, Mon-Fri
+            weekday = now_et.weekday() # 0=Mon, 6=Sun
+            
+            today_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+            today_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+            
+            next_open_str = "Unknown"
+            next_close_str = "Unknown"
+            
+            # Logic
+            if is_open:
+                # If currently open, next event is close at 16:00 today
+                # But allow for extended hours if market_state says extended
+                if market_state in ['POST', 'POSTPOST']:
+                    is_open = False # Logic override if we want to show 'Closed' for regular trading
+                    # But if yfinance says REGULAR, it is open.
+                
+                next_close_str = today_close.strftime("%I:%M %p ET")
+                next_open_str = "Market is Open" 
+            
+            # Re-evaluate is_open based on market_state if provided, otherwise time fallback
+            # (We keep is_open from yfinance as truth, but if it failed, we might use time)
+            
+            if not is_open:
+                # If closed, find next open
+                candidate = now_et
+                found = False
+                days_added = 0
+                
+                # If today is weekday and before 9:30, it opens today
+                if weekday < 5 and now_et < today_open:
+                    next_open_dt = today_open
+                    found = True
+                else:
+                    # Start checking from tomorrow
+                    candidate = candidate + timedelta(days=1)
+                    days_added += 1
+                    while not found and days_added < 10: 
+                        w = candidate.weekday()
+                        if w < 5: # Mon-Fri
+                            next_open_dt = candidate.replace(hour=9, minute=30, second=0, microsecond=0)
+                            found = True
+                        else:
+                            candidate = candidate + timedelta(days=1)
+                            days_added += 1
+                
+                if found:
+                    day_diff = (next_open_dt.date() - now_et.date()).days
+                    
+                    if day_diff == 0:
+                        day_str = "Today"
+                    elif day_diff == 1:
+                        day_str = "Tomorrow"
+                    else:
+                        day_str = next_open_dt.strftime("%A, %b %d")
+                        
+                    next_open_str = f"{day_str} at {next_open_dt.strftime('%I:%M %p')} ET"
+
+            return {
+                "isOpen": is_open,
+                "status": market_state,
+                "nextOpen": next_open_str,
+                "nextClose": next_close_str, 
+                "exchange": exchange,
+                "timezone": tz,
+                "t": int(time.time()),
+                "source": "Yahoo Finance"
+            }
+
+        elif endpoint == 'search':
+            # yfinance doesn't have a direct search method on the Ticker object that returns a list.
+            # However, we can just return the query as a single result if it looks like a ticker,
+            # or try to fetch info to validate.
+            # For now, to satisfy the requirement "Ensure a slot is always available for... user search",
+            # we will return a basic structure. 
+            # Real implementation might need a different library or scraping, but let's at least not error.
+            query = kwargs.get('q', '')
+            results = []
+            
+            upper_query = query.upper()
+            
+            # If mapped (handled globally, but we want to show it explicitly as a result)
+            if upper_query in TICKER_MAP:
+                ticker = TICKER_MAP[upper_query]
+                results.append({
+                    "description": f"{query} (Mapped)",
+                    "displaySymbol": ticker,
+                    "symbol": ticker,
+                    "type": "Common Stock"
+                })
+            
+            # If query length is decent, try Yahoo Finance Search API
+            if query and len(query) > 1:
+                try:
+                    import requests
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    }
+                    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
+                    response = requests.get(url, headers=headers, timeout=5)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        if 'quotes' in data:
+                            for quote in data['quotes']:
+                                # Filter only equity/etf to reduce noise?
+                                # quoteType: EQUITY, ETF, MUTUALFUND, INDEX, CURRENCY, CRYPTOCURRENCY
+                                # For now, allow most, but prioritize logic if needed.
+                                
+                                # Skip if no symbol
+                                if 'symbol' not in quote:
+                                    continue
+                                
+                                results.append({
+                                    "description": quote.get('longname', quote.get('shortname', quote['symbol'])),
+                                    "displaySymbol": quote['symbol'],
+                                    "symbol": quote['symbol'],
+                                    "type": quote.get('quoteType', 'Unknown')
+                                })
+                except Exception as e:
+                    # Fallback or silent fail
+                    print(f"Search API failed: {str(e)}", file=sys.stderr)
+                    pass
+
+            # Depuplicate by symbol
+            seen = set()
+            unique_results = []
+            for r in results:
+                if r['symbol'] not in seen:
+                    seen.add(r['symbol'])
+                    unique_results.append(r)
+
+            return {"count": len(unique_results), "result": unique_results}
 
         else:
             return {"error": f"Unknown endpoint: {endpoint}"}

@@ -16,7 +16,7 @@ const LandingPage = () => {
     };
 
     const handleError = () => {
-        console.log('Login Failed');
+
     };
 
     return (

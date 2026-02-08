@@ -6,6 +6,7 @@ const News = () => {
     const [news, setNews] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [lastUpdated, setLastUpdated] = useState(null);
 
     const loadNews = async () => {
         setLoading(true);
@@ -20,6 +21,7 @@ const News = () => {
                 throw new Error(data.error);
             }
             setNews(Array.isArray(data) ? data : []);
+            setLastUpdated(new Date());
         } catch (err) {
             console.error("Error loading news:", err);
             setError(err.message);
@@ -39,25 +41,35 @@ const News = () => {
                     <h1 style={{ fontSize: '2rem', marginBottom: '8px' }}>Market News</h1>
                     <div style={{ color: 'var(--text-secondary)' }}>Latest updates from the global markets</div>
                 </div>
-                <button
-                    onClick={loadNews}
-                    disabled={loading}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '10px 20px',
-                        backgroundColor: 'var(--bg-accent)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '8px',
-                        color: 'var(--text-primary)',
-                        cursor: loading ? 'not-allowed' : 'pointer',
-                        transition: 'all 0.2s'
-                    }}
-                >
-                    <RefreshCw size={18} className={loading ? 'spin' : ''} />
-                    Refresh
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    {lastUpdated && (
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                            Last updated: {lastUpdated.toLocaleTimeString()}
+                        </div>
+                    )}
+                    <button
+                        onClick={loadNews}
+                        disabled={loading}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '10px 20px',
+                            backgroundColor: '#2563eb', // Explicit blue for visibility
+                            border: 'none',
+                            borderRadius: '8px',
+                            color: 'white',
+                            cursor: loading ? 'not-allowed' : 'pointer',
+                            opacity: loading ? 0.7 : 1,
+                            transition: 'all 0.2s',
+                            fontWeight: '500',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                        }}
+                    >
+                        <RefreshCw size={18} className={loading ? 'spin' : ''} />
+                        Refresh
+                    </button>
+                </div>
             </div>
 
             {error && (

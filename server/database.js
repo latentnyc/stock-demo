@@ -55,10 +55,40 @@ function initDb() {
             method TEXT,
             url TEXT,
             status INTEGER,
-            duration INTEGER
-        )`);
-
-        console.log('Database tables initialized.');
+            duration INTEGER,
+            cache_hit INTEGER DEFAULT 0
+        )`, (err) => {
+            if (!err) {
+                // Check if cache_hit column exists, if not add it
+                db.all("PRAGMA table_info(logs)", (err, rows) => {
+                    if (err) {
+                        console.error("Error checking logs table schema:", err);
+                        return;
+                    }
+                    const hasCacheHit = rows.some(row => row.name === 'cache_hit');
+                    if (!hasCacheHit) {
+                        db.run("ALTER TABLE logs ADD COLUMN cache_hit INTEGER DEFAULT 0", (err) => {
+                            if (err) console.error("Error adding cache_hit column:", err);
+                            else console.log("Added cache_hit column to logs table");
+                        });
+                    }
+                });
+            }
+        });
+        // Check for average_price in portfolio
+        db.all("PRAGMA table_info(portfolio)", (err, rows) => {
+            if (err) {
+                console.error("Error checking portfolio table schema:", err);
+                return;
+            }
+            const hasAvgPrice = rows.some(row => row.name === 'average_price');
+            if (!hasAvgPrice) {
+                db.run("ALTER TABLE portfolio ADD COLUMN average_price REAL", (err) => {
+                    if (err) console.error("Error adding average_price column:", err);
+                    else console.log("Added average_price column to portfolio table");
+                });
+            }
+        });
     });
 }
 
